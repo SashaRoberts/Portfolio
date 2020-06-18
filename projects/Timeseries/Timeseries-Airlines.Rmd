@@ -1,0 +1,279 @@
+---
+title: "Timeseries Project"
+author: "Sasha Roberts, Bharat Khatri, Rich Johnson"
+date: "November 19, 2019"
+output: html_document
+---
+
+```{r}
+require(tseries)
+require(forecast)
+require(arfima)
+require(lmtest)
+require(xts)
+require(zoo)
+require(imputeTS)
+require(tidyverse)
+require(lubridate)
+require(furrr)
+require(tsibble)
+require(TSstudio)
+require(TSPred)
+require(prophet)
+require(fGarch)
+require(TSA)
+require("Metrics")
+```
+
+## Import Data
+
+```{r}
+#datapath <-"C:/Users/bhara/OneDrive/Documents/MS_Analytics/Time_Series/Project"
+datapath <- "C:/Users/Sasha/Desktop/TimeSeries/Project"
+#datapath <- "C:/Users/sasha/Downloads"
+airline_data <- read.csv(file=paste(datapath,"International_airline_activity.csv",sep="/"))
+```
+
+No missing values.
+
+```{r}
+plotNA.distribution(airline_data$P_Total)
+plotNA.distribution(airline_data$M_Total)
+plotNA.distribution(airline_data$FR_Total)
+plotNA.distribution(airline_data$SU_Total) #data starts later than others
+```
+
+##Data Exploration
+
+```{r}
+names(airline_data)[1] <- "Year"
+Passengers <- xts(airline_data$P_Total, as.yearmon(paste(airline_data$Year, airline_data$Month, sep = "-"),"%Y-%b"))
+plot(Passengers)
+
+Mail <- xts(airline_data$M_Total, as.yearmon(paste(airline_data$Year, airline_data$Month, sep = "-"),"%Y-%b"))
+plot(Mail)
+
+Freight <- xts(airline_data$FR_Total, as.yearmon(paste(airline_data$Year, airline_data$Month, sep = "-"),"%Y-%b"))
+plot(Freight)
+
+Seat_Utilization <- xts(airline_data$SU_Total, as.yearmon(paste(airline_data$Year, airline_data$Month, sep = "-"),"%Y-%b"))
+plot(Seat_Utilization)
+
+seasonplot(xts_to_ts(Passengers), year.labels = TRUE, year.labels.left=TRUE, col=1:40, pch=19, main = "Passengers seasonplot", xlab = "Month")
+seasonplot(xts_to_ts(Mail), year.labels = TRUE, year.labels.left=TRUE, col=1:40, pch=19, main = "Mail seasonplot", xlab = "Month")
+seasonplot(xts_to_ts(Freight), year.labels = TRUE, year.labels.left=TRUE, col=1:40, pch=19, main = "Freight seasonplot", xlab = "Month")
+seasonplot(xts_to_ts(Seat_Utilization), year.labels = TRUE, year.labels.left=TRUE, col=1:40, pch=19, main = "Seat Utilization seasonplot", xlab = "Month")
+```
+
+##STL Decomposition
+```{r}
+stl_air <- stl(ts(airline_data$P_Total, frequency = 12), "periodic")
+plot(stl_air, main= "STL Passengers")
+
+stl_mail <- stl(ts(airline_data$M_Total, frequency = 12), "periodic")
+plot(stl_mail, main= "STL Mail")
+
+stl_freight <- stl(ts(airline_data$FR_Total, frequency = 12), "periodic")
+plot(stl_freight, main= "STL Freight")
+
+stl_su <- stl(ts(tail(airline_data$SU_Total, -37), frequency = 12), "periodic")
+plot(stl_su, main= "STL Seat Utilization")
+
+```
+
+##Test/Train Split
+
+```{r}
+train_P <- xts_to_ts(window(Passengers, start = "1988-01-01", end = "2017-12-31"))
+test_P <- xts_to_ts(window(Passengers, start = "2018-01-01", end = "2018-12-31"))
+
+train_M <- xts_to_ts(window(Mail, start = "1988-01-01", end = "2017-12-31"))
+test_M <- xts_to_ts(window(Mail, start = "2018-01-01", end = "2018-12-31"))
+
+train_F <- xts_to_ts(window(Freight, start = "1988-01-01", end = "2017-12-31"))
+test_F <- xts_to_ts(window(Freight, start = "2018-01-01", end = "2018-12-31"))
+
+train_SU <- xts_to_ts(window(Seat_Utilization, start = "1991-01-01", end = "2017-12-31"))
+test_SU <- xts_to_ts(window(Seat_Utilization, start = "2018-01-01", end = "2018-12-31"))
+```
+
+##Holt Winters Model
+```{r}
+# Passengers
+HW_P <- HoltWinters(train_P)
+plot(HW_P)
+plot(fitted(HW_P))
+plot(HW_P$fitted, main="Seasonal Breakdown of Fitted Holt-Winters")
+checkresiduals(HW_P)
+HW_P_forecast <- forecast(HW_P, h=12)
+plot(HW_P_forecast)
+autoplot(HW_P_forecast, main="Holt-Winters Forecast", xlab="Years", ylab="Passengers")
+forecast::accuracy(HW_P_forecast$mean,test)
+HW_P_smape <- sMAPE(test_P, HW_P_forecast$mean)
+
+# Mail
+HW_M <- HoltWinters(train_M)
+plot(HW_M)
+plot(fitted(HW_M))
+checkresiduals(HW_M)
+HW_M_forecast <- forecast(HW_M, h=12)
+plot(HW_M_forecast)
+autoplot(HW_M_forecast, main="Holt-Winters Forecast", xlab="Years", ylab="Mail")
+forecast::accuracy(HW_M_forecast$mean,test)
+HW_M_smape <- smape(test_M, HW_M_forecast$mean)
+
+# Freight
+HW_F <- HoltWinters(train_F)
+plot(HW_F)
+plot(fitted(HW_F))
+checkresiduals(HW_F)
+HW_F_forecast <- forecast(HW_F, h=12)
+plot(HW_F_forecast)
+autoplot(HW_F_forecast, main="Holt-Winters Forecast", xlab="Years", ylab="Freight")
+forecast::accuracy(HW_F_forecast$mean,test)
+HW_F_smape <- smape(test_F, HW_F_forecast$mean)
+
+# Seat Utilization
+HW_SU <- HoltWinters(train_SU)
+plot(HW_SU)
+plot(fitted(HW_SU))
+checkresiduals(HW_SU)
+HW_SU_forecast <- forecast(HW_SU, h=12)
+plot(HW_SU_forecast)
+autoplot(HW_SU_forecast, main="Holt-Winters Forecast", xlab="Years", ylab="Seat Utilization")
+forecast::accuracy(HW_SU_forecast$mean,test)
+HW_SU_smape <- smape(test_SU, HW_SU_forecast$mean)
+```
+
+##ARIMA
+```{r}
+# Passengers
+(arima_model_P <- auto.arima(train_P, seasonal = FALSE))
+arima_forecast_P <- forecast(arima_model_P, h=12)
+autoplot(arima_forecast_P, main="ARIMA Forecast", xlab="Years", ylab="Passengers")
+forecast::accuracy(arima_forecast_P$mean,test_P)
+(arima_smape_P <- sMAPE(test_P,arima_forecast_P$mean))
+(arima_autocorrelation_P <- Box.test(arima_forecast_P$residuals,type='Ljung'))
+(arima_norm_P <- shapiro.test(arima_forecast_P$residuals))
+(checkresiduals(arima_forecast_P))
+
+# Mail
+(arima_model_M <- auto.arima(train_M, seasonal = FALSE))
+arima_forecast_M <- forecast(arima_model_M, h=12)
+autoplot(arima_forecast_M, main="ARIMA Forecast", xlab="Years", ylab="Mail")
+forecast::accuracy(arima_forecast_M$mean,test_M)
+(arima_smape_M <- sMAPE(test_P,arima_forecast_M$mean))
+(arima_autocorrelation_M <- Box.test(arima_forecast_M$residuals,type='Ljung'))
+(arima_norm_M <- shapiro.test(arima_forecast_M$residuals))
+(checkresiduals(arima_forecast_M))
+
+# Freight
+(arima_model_F <- auto.arima(train_F, seasonal = FALSE))
+arima_forecast_F <- forecast(arima_model_F, h=12)
+autoplot(arima_forecast_F, main="ARIMA Forecast", xlab="Years", ylab="Freight")
+forecast::accuracy(arima_forecast_F$mean,test_F)
+(arima_smape_F <- sMAPE(test_P,arima_forecast_F$mean))
+(arima_autocorrelation_F <- Box.test(arima_forecast_F$residuals,type='Ljung'))
+(arima_norm_F <- shapiro.test(arima_forecast_F$residuals))
+(checkresiduals(arima_forecast_F))
+
+# Seat Utilization
+(arima_model_SU <- auto.arima(train_SU, seasonal = FALSE))
+arima_forecast_SU <- forecast(arima_model_SU, h=12)
+autoplot(arima_forecast_SU, main="ARIMA Forecast", xlab="Years", ylab="Seat Utilization")
+forecast::accuracy(arima_forecast_SU$mean,test_SU)
+(arima_smape_SU <- sMAPE(test_P,arima_forecast_SU$mean))
+(arima_autocorrelation_SU <- Box.test(arima_forecast_SU$residuals,type='Ljung'))
+(arima_norm_SU <- shapiro.test(arima_forecast_SU$residuals))
+(checkresiduals(arima_forecast_SU))
+```
+
+##Seasonal ARIMA
+```{r}
+# Passengers
+(sarima_model_P <- auto.arima(train_P, trace=FALSE, test="kpss", ic="aicc",
+                    stepwise=FALSE, approximation=FALSE, seasonal=TRUE))
+sarima_forecast_P <- forecast(sarima_model_P, h=12)
+autoplot(sarima_forecast_P, main="SARIMA Forecast", xlab="Years", ylab="Passengers")
+forecast::accuracy(sarima_forecast_P$mean,test_P)
+(sarima_smape_P <- sMAPE(test_P,sarima_forecast_P$mean))
+(sarima_autocorrelation_P <- Box.test(sarima_forecast_P$residuals,type='Ljung'))
+(sarima_norm_P <- shapiro.test(sarima_forecast_P$residuals))
+(checkresiduals(sarima_forecast_P))
+
+# Mail
+(sarima_model_M <- auto.arima(train_M, trace=FALSE, test="kpss", ic="aicc",
+                    stepwise=FALSE, approximation=FALSE, seasonal=TRUE))
+sarima_forecast_M <- forecast(sarima_model_M, h=12)
+autoplot(sarima_forecast_M, main="SARIMA Forecast", xlab="Years", ylab="Mail")
+forecast::accuracy(sarima_forecast_M$mean,test_M)
+(sarima_smape_M <- sMAPE(test_M,sarima_forecast_M$mean))
+(sarima_autocorrelation_M <- Box.test(sarima_forecast_M$residuals,type='Ljung'))
+(sarima_norm_M <- shapiro.test(sarima_forecast_M$residuals))
+(checkresiduals(sarima_forecast_M))
+
+# Freight
+(sarima_model_F <- auto.arima(train_F, trace=FALSE, test="kpss", ic="aicc",
+                    stepwise=FALSE, approximation=FALSE, seasonal=TRUE))
+sarima_forecast_F <- forecast(sarima_model_F, h=12)
+autoplot(sarima_forecast_F, main="SARIMA Forecast", xlab="Years", ylab="Freight")
+forecast::accuracy(sarima_forecast_F$mean,test_F)
+(sarima_smape_F <- sMAPE(test_F,sarima_forecast_F$mean))
+(sarima_autocorrelation_F <- Box.test(sarima_forecast_F$residuals,type='Ljung'))
+(sarima_norm_F <- shapiro.test(sarima_forecast_F$residuals))
+(checkresiduals(sarima_forecast_F))
+
+# Seat Utilization
+(sarima_model_SU <- auto.arima(train_SU, trace=FALSE, test="kpss", ic="aicc",
+                    stepwise=FALSE, approximation=FALSE, seasonal=TRUE))
+sarima_forecast_SU <- forecast(sarima_model_SU, h=12)
+autoplot(sarima_forecast_SU, main="SARIMA Forecast", xlab="Years", ylab="Seat Utilization")
+forecast::accuracy(sarima_forecast_SU$mean,test_SU)
+(sarima_smape_SU <- sMAPE(test_SU,sarima_forecast_SU$mean))
+(sarima_autocorrelation_SU <- Box.test(sarima_forecast_SU$residuals,type='Ljung'))
+(sarima_norm_SU <- shapiro.test(sarima_forecast_SU$residuals))
+(checkresiduals(sarima_forecast_SU))
+```
+
+##ARFIMA
+```{r}
+# Passengers
+(arfima_model_P <- arfima(train_P))
+arfima_forecast_P <- forecast(arfima_model_P, h=12)
+autoplot(arfima_forecast_P, main="ARFIMA Forecast", xlab="Years", ylab="Passengers")
+forecast::accuracy(arfima_forecast_P$mean,test_P)
+(arfima_smape_P <- sMAPE(test_P,arfima_forecast_P$mean))
+(arfima_autocorrelation_P <- Box.test(arfima_forecast_P$residuals,type='Ljung'))
+(arfima_norm_P <- shapiro.test(arfima_forecast_P$residuals))
+(checkresiduals(arfima_forecast_P))
+
+# Mail
+(arfima_model_M <- arfima(train_M))
+arfima_forecast_M <- forecast(arfima_model_M, h=12)
+autoplot(arfima_forecast_M, main="ARFIMA Forecast", xlab="Years", ylab="Mail")
+forecast::accuracy(arfima_forecast_M$mean,test_M)
+(arfima_smape_M <- sMAPE(test_M,arfima_forecast_M$mean))
+(arfima_autocorrelation_M <- Box.test(arfima_forecast_M$residuals,type='Ljung'))
+(arfima_norm_M <- shapiro.test(arfima_forecast_M$residuals))
+(checkresiduals(arfima_forecast_M))
+
+# Freight
+(arfima_model_F <- arfima(train_F))
+arfima_forecast_F <- forecast(arfima_model_F, h=12)
+autoplot(arfima_forecast_F, main="ARFIMA Forecast", xlab="Years", ylab="Freight")
+forecast::accuracy(arfima_forecast_F$mean,test_F)
+(arfima_smape_F <- sMAPE(test_F,arfima_forecast_F$mean))
+(arfima_autocorrelation_F <- Box.test(arfima_forecast_F$residuals,type='Ljung'))
+(arfima_norm_F <- shapiro.test(arfima_forecast_F$residuals))
+(checkresiduals(arfima_forecast_F))
+
+# Seat Utilization
+(arfima_model_SU <- arfima(train_SU))
+arfima_forecast_SU <- forecast(arfima_model_SU, h=12)
+autoplot(arfima_forecast_SU, main="ARFIMA Forecast", xlab="Years", ylab="Seat Utilization")
+forecast::accuracy(arfima_forecast_SU$mean,test_SU)
+(arfima_smape_SU <- sMAPE(test_SU,arfima_forecast_SU$mean))
+(arfima_autocorrelation_SU <- Box.test(arfima_forecast_SU$residuals,type='Ljung'))
+(arfima_norm_SU <- shapiro.test(arfima_forecast_SU$residuals))
+(checkresiduals(arfima_forecast_SU))
+```
