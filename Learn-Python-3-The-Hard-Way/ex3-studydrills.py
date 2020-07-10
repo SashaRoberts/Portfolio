@@ -11,6 +11,7 @@ print("Roosters", 100 - 25 * 3  % 4)
 print("Now I will count the eggs:")
 
 # 4%2 = 0
+# percent % is modulus; X divided by Y with J remaining
 # 1.0/4 = 0.25
 # add and subtract left to right
 print(3 + 2 + 1 - 5 + 4 % 2 - 1 / 4 + 6)
